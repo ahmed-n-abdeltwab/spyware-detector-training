@@ -38,7 +38,7 @@ def main():
     print("\n=== Step 3: Feature Selection ===")
     feature_selector = FeatureSelector()
     X_train_selected, feature_names = feature_selector.select_features(
-        X_train_features, y_train, method='chi2', k=50
+        X_train_features, y_train, method="chi2", k=50
     )
     X_val_selected = feature_selector.transform_features(X_val_features)
     X_test_selected = feature_selector.transform_features(X_test_features)
