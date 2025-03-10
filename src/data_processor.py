@@ -9,6 +9,7 @@ class DataProcessor:
     """
 
     def __init__(self, data_dir="data", dataset_name="malwares.csv"):
+        self.feature_columns = None
         self.data_dir = data_dir
         self.dataset_path = os.path.join(data_dir, dataset_name)
         self.processed_dir = os.path.join(data_dir, "processed")
@@ -20,12 +21,6 @@ class DataProcessor:
         """
         if not os.path.exists(self.dataset_path):
             raise FileNotFoundError(f"Dataset not found at {self.dataset_path}")
-
-        # Debug: Print the first few lines of the file
-        with open(self.dataset_path, "r") as f:
-            print("First 5 lines of the file:")
-            for _ in range(5):
-                print(f.readline().strip())
 
         # Try reading with tab separator first
         try:
@@ -53,10 +48,11 @@ class DataProcessor:
             )
             data = pd.read_csv(
                 self.dataset_path,
-                sep=None,
+                sep="\t",
                 engine="python",
                 header=0,
                 skipinitialspace=True,
+                quoting=3,
             )
 
         # Normalize column names
@@ -69,7 +65,6 @@ class DataProcessor:
                 f"Missing 'labels' column in dataset. Available columns: {list(data.columns)}"
             )
 
-        # Rename to 'labels' for consistency
         data.rename(columns={label_col: "labels"}, inplace=True)
 
         print(f"Loaded dataset with shape: {data.shape}")
@@ -84,7 +79,6 @@ class DataProcessor:
         if data is None or not isinstance(data, pd.DataFrame):
             raise ValueError("Invalid dataset provided. Expected a DataFrame.")
 
-        print("Columns before dropping labels:", list(data.columns)[:5])
         if "labels" not in data.columns:
             raise ValueError(
                 f"Error: 'labels' column not found. Available columns: {list(data.columns)}"
@@ -93,8 +87,19 @@ class DataProcessor:
         X = data.drop(columns=["labels"])
         y = data["labels"].astype(int)  # Ensure labels are integers
 
-        print(f"Processed dataset: Features shape {X.shape}, Labels shape {y.shape}")
-        self.feature_columns = X.columns.tolist()
+        # Debugging: Print first few rows of X
+        print("First few rows of X before conversion:\n", X.head())
+
+        # Ensure numeric conversion (convert non-numeric columns to NaN)
+        X = X.apply(pd.to_numeric, errors="coerce")
+
+        # Drop columns where all values are NaN (non-numeric columns)
+        X = X.dropna(axis=1, how="all")
+
+        # Drop rows where all features are NaN (fully missing rows)
+        X = X.dropna(axis=0, how="all")
+
+        print("Processed dataset: Features shape", X.shape, "Labels shape", y.shape)
         return X, y
 
     def split_dataset(self, X, y, test_size=0.2, validation_size=0.1, random_state=42):
