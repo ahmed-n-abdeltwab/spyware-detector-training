@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+data/*
+data/processed/
+models/saved/
+.DS_Store
+__init__.py
+*.log
+*.sqlite3
