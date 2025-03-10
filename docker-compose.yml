@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  spyware-trainer:
+    build: .
+    container_name: spyware_trainer
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "main.py"]

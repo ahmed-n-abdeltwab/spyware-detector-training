@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env
+data/raw/
+data/processed/
+models/saved/
+__init__.py
+.DS_Store
