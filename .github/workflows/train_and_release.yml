@@ -1,0 +1,46 @@
+name: Train and Release Model
+
+on:
+  push:
+    branches:
+      - main  # Trigger when pushing to main
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  train-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Train the Model
+        run: |
+          python main.py  # Modify if needed to run training
+
+      - name: Archive Model
+        run: |
+          mkdir -p release
+          cp models/saved/*/model.pkl release/model.pkl
+          cp models/saved/*/metadata.json release/metadata.json
+          cp models/saved/*/metrics.json release/metrics.json
+          tar -czvf trained_model.tar.gz -C release .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest-model-${{ github.run_number }}
+          name: Latest Trained Model
+          body: "This model was trained automatically on commit ${{ github.sha }}"
+          files: trained_model.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
