@@ -4,7 +4,6 @@ __pycache__/
 *.pyd
 venv/
 .env
-data/*
 data/processed/
 models/saved/
 .DS_Store
