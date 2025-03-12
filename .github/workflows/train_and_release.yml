@@ -44,4 +44,4 @@ jobs:
           body: "This model was trained automatically on commit ${{ github.sha }}"
           files: trained_model.tar.gz
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
