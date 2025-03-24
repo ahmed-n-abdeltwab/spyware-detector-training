@@ -9,7 +9,7 @@ params:
   hyperparams:
     random_forest:
       n_estimators: [100, 200]
-      max_depth: [10, 20, 30]  # Remove None from options
+      max_depth: [10, 20]  # Removed None
       min_samples_split: [2, 5]
     svm:
       C: [0.1, 1, 10]
