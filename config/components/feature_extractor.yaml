@@ -1,0 +1,9 @@
+class_path: src.components.feature_extractor.FeatureExtractor
+params:
+  scale_features: true
+  output_dir: "data/processed"
+  transformations:
+    - "standard_scaling"
+    - "log_transform"
+  logging:
+    level: "DEBUG"

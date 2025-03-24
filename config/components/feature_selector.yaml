@@ -1,0 +1,12 @@
+class_path: src.components.feature_selector.FeatureSelector
+params:
+  method: "mutual_info"
+  k: 50
+  output_dir: "data/processed"
+  scoring:
+    mutual_info:
+      random_state: 42
+    chi2:
+      min_value: 0
+  logging:
+    level: "INFO"

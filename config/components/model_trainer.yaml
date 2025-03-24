@@ -1,0 +1,21 @@
+class_path: src.components.model_trainer.ModelTrainer
+params:
+  model_type: "random_forest"
+  output_dir: "models/saved"
+  validation:
+    cv_folds: 5
+    scoring: "f1_weighted"
+    error_score: 'raise'
+  hyperparams:
+    random_forest:
+      n_estimators: [100, 200]
+      max_depth: [10, 20, 30]  # Remove None from options
+      min_samples_split: [2, 5]
+    svm:
+      C: [0.1, 1, 10]
+      kernel: ["linear", "rbf"]
+    neural_net:
+      hidden_layer_sizes: [[50], [100], [50, 50]]
+      alpha: [0.0001, 0.001]
+  logging:
+    level: "DEBUG"
