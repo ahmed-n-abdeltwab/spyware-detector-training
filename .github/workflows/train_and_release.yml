@@ -1,28 +1,30 @@
-name: Model Training and Release
+name: Model Training and Release Pipeline
 
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*.*.*' ]  # Trigger on version tags
+    tags: [ 'v*.*.*' ]
   workflow_dispatch:
 
 env:
   DOCKER_IMAGE: spyware-detector
   RELEASE_DIR: release
+  RELEASE_FILENAME: model_release.tar.gz  # Consistent filename for direct downloads
 
 jobs:
   train-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required for creating releases
+      contents: write
       packages: write
       actions: read
 
     steps:
+      # --- Setup Phase ---
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Needed for tag detection
+          fetch-depth: 0  # Required for tag operations
 
       - name: Set up Python 3.9
         uses: actions/setup-python@v4
@@ -33,16 +35,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          sudo apt-get install -y jq
 
-      - name: Install jq
-        run: sudo apt-get install -y jq
-
+      # --- Build Phase ---
       - name: Build Docker image
         run: |
           docker build -t $DOCKER_IMAGE .
           docker images
 
-      - name: Prepare release directory
+      # --- Training Phase ---
+      - name: Prepare workspace
         run: |
           mkdir -p ./$RELEASE_DIR/latest
           chmod -R 777 ./$RELEASE_DIR
@@ -57,60 +59,50 @@ jobs:
             -u 1001 \
             $DOCKER_IMAGE
 
-      - name: Verify artifacts
+      # --- Verification Phase ---
+      - name: Validate artifacts
         run: |
-          echo "Generated artifacts:"
+          echo "Artifact Verification:"
           ls -lR ./$RELEASE_DIR/latest
-          
-          REQUIRED_FILES=(
+
+          declare -a REQUIRED_FILES=(
             "model.pkl"
             "metadata.json"
             "metrics.json"
             "feature_structure.json"
           )
-          
-          missing_files=0
+
           for file in "${REQUIRED_FILES[@]}"; do
             if [ ! -f "./$RELEASE_DIR/latest/$file" ]; then
-              echo "Error: Required file $file not found!"
-              missing_files=$((missing_files+1))
+              echo "::error::Missing required file: $file"
+              exit 1
             fi
           done
-          
-          if [ $missing_files -gt 0 ]; then
-            echo "Error: Missing $missing_files required files!"
-            docker logs $(docker ps -lq) || true
-            exit 1
-          fi
 
+      # --- Packaging Phase ---
       - name: Package release assets
         run: |
-          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-          RELEASE_NAME="model_$TIMESTAMP"
+          # Create standardized filename for direct downloads
+          tar -czvf ./$RELEASE_DIR/$RELEASE_FILENAME -C ./$RELEASE_DIR/latest .
           
-          # Create archive with all artifacts
-          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/latest .
-          
-          # Create version file
-          MODEL_VERSION=$(jq -r '.timestamp + "-" + .model_type' ./$RELEASE_DIR/latest/metadata.json)
-          echo $MODEL_VERSION > ./$RELEASE_DIR/version.txt
-          
-          echo "Release assets prepared:"
-          ls -l ./$RELEASE_DIR/*.tar.gz
+          # Generate version info
+          jq '. + {download_url: "https://github.com/${{ github.repository }}/releases/latest/download/$RELEASE_FILENAME"}' \
+            ./$RELEASE_DIR/latest/metadata.json > ./$RELEASE_DIR/latest/release_info.json
 
-      - name: Auto-tag release (on main branch)
+          echo "Packaged assets:"
+          ls -l ./$RELEASE_DIR/
+
+      # --- Release Phase ---
+      - name: Auto-generate version tag
         if: github.ref == 'refs/heads/main'
         id: autotag
         run: |
-          # Get version from metadata
-          VERSION=$(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json | cut -c1-10 | tr -d '-')
+          VERSION=$(date +%Y%m%d)
           TAG_NAME="v1.0.$VERSION"
-          
-          # Create lightweight tag
           git tag $TAG_NAME
           git push origin $TAG_NAME
-          
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Generated tag: $TAG_NAME"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -118,31 +110,31 @@ jobs:
           tag_name: ${{ github.ref_name || steps.autotag.outputs.tag_name }}
           name: "Model Release ${{ github.ref_name || steps.autotag.outputs.tag_name }}"
           body: |
-            ## Model Details
-            - **Type**: $(jq -r '.model_type' ./$RELEASE_DIR/latest/metadata.json)
-            - **Training Date**: $(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json)
-            
-            ## Performance Metrics
+            ## 📦 Model Package
+            **Direct Download:**  
+            [Download $RELEASE_FILENAME](https://github.com/${{ github.repository }}/releases/latest/download/$RELEASE_FILENAME)
+
+            ### 🚀 Model Details
+            ```json
+            $(cat ./$RELEASE_DIR/latest/metadata.json | jq -c '{model_type, timestamp, hyperparameters}')
+            ```
+
+            ### 📊 Performance Metrics
             ```json
             $(cat ./$RELEASE_DIR/latest/metrics.json)
             ```
-            
-            ## Version Info
-            $(cat ./$RELEASE_DIR/version.txt)
           files: |
-            ${{ env.RELEASE_DIR }}/*.tar.gz
-            ${{ env.RELEASE_DIR }}/latest/metadata.json
-            ${{ env.RELEASE_DIR }}/latest/metrics.json
+            ${{ env.RELEASE_DIR }}/${{ env.RELEASE_FILENAME }}
+            ${{ env.RELEASE_DIR }}/latest/release_info.json
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # --- Fallback Artifact ---
       - name: Upload workflow artifact
+        if: ${{ !success() }}
         uses: actions/upload-artifact@v4
         with:
-          name: model-release
+          name: model-artifacts
           path: |
-            ${{ env.RELEASE_DIR }}/*.tar.gz
-            ${{ env.RELEASE_DIR }}/version.txt
-          if-no-files-found: error
+            ${{ env.RELEASE_DIR }}/*
+          retention-days: 7
