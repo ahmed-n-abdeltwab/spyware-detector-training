@@ -40,11 +40,15 @@ USER appuser
 COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application files
-COPY --chown=appuser:appuser . .
+# Copy application files (excluding .dockerignore patterns)
+COPY --chown=appuser:appuser setup.py .
+COPY --chown=appuser:appuser pyproject.toml .
+COPY --chown=appuser:appuser requirements.txt .
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser config/ ./config/
 
-# Install package in development mode
-RUN pip install -e .
+# Install the package
+RUN pip install .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s \
