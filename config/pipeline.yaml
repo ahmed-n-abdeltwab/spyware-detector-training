@@ -1,0 +1,33 @@
+components:
+  data_processor:
+    class_path: src.components.data_processor.DataProcessor
+    params:
+      data_path: "data/malwares.csv"
+      label_column: "labels"
+      separator: "\t"
+  
+  feature_extractor:
+    class_path: src.components.feature_extractor.FeatureExtractor
+    params:
+      scale_features: true
+      output_dir: "data/processed"
+  
+  feature_selector:
+    class_path: src.components.feature_selector.FeatureSelector
+    params:
+      method: "mutual_info"
+      k: 50
+      output_dir: "data/processed"
+  
+  model_trainer:
+    class_path: src.components.model_trainer.ModelTrainer
+    params:
+      model_type: "random_forest"
+      output_dir: "models/saved"
+      hyperparams:
+        n_estimators: [100, 200]
+        max_depth: [None, 10, 20]
+        min_samples_split: [2, 5]
+
+release:
+  output_dir: "release"

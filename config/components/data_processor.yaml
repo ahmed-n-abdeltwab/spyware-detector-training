@@ -1,0 +1,10 @@
+class_path: src.components.data_processor.DataProcessor
+params:
+  data_path: "data/malwares.csv"
+  label_column: "labels"
+  separator: "\t"
+  validation:
+    min_features: 10
+    max_null_percentage: 0.5
+  logging:
+    level: "INFO"
