@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ========== RUNTIME STAGE ==========
 FROM python:3.9-slim
 
+# Set Python path
+ENV PYTHONPATH=/app
+
 # Create directory structure with proper permissions
 RUN mkdir -p /app && \
     mkdir -p /app/data && \
