@@ -26,11 +26,11 @@ ENV PYTHONPATH=/app
 RUN mkdir -p /app && \
     mkdir -p /app/data && \
     mkdir -p /app/models && \
-    mkdir -p /app/release && \
+    mkdir -p /app/release/latest && \
     chmod -R 777 /app
 
-# Create non-root user
-RUN useradd -m appuser && \
+# Create non-root user with specific UID
+RUN useradd -u 1001 -m appuser && \
     chown -R appuser:appuser /app
 
 WORKDIR /app
@@ -41,8 +41,10 @@ COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application files
-COPY --chown=appuser:appuser src/ ./src/
-COPY --chown=appuser:appuser config/ ./config/
+COPY --chown=appuser:appuser . .
+
+# Install package in development mode
+RUN pip install -e .
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s \

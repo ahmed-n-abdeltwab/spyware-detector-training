@@ -25,10 +25,14 @@ def main():
     try:
         logger.info("🚀 Starting Spyware Detector Training Pipeline")
 
-        # Ensure release directory exists
+        # Ensure release directory exists with proper permissions
         release_dir = os.path.abspath("release/latest")
         os.makedirs(release_dir, exist_ok=True)
+        os.chmod(release_dir, 0o777)
         logger.info(f"Release directory: {release_dir}")
+        logger.info(
+            f"Directory permissions: {oct(os.stat(release_dir).st_mode & 0o777)}"
+        )
 
         # Initialize and run pipeline
         pipeline = TrainingPipeline("config/pipeline.yaml")
@@ -42,13 +46,17 @@ def main():
         shutil.make_archive("model_release", "zip", release_dir)
         logger.info("📦 Created release package: model_release.zip")
 
-        # Log exported files
-        logger.info("💾 Artifacts generated:")
+        # Verify all artifacts were created
+        missing_files = []
         for name, path in results["exported_files"].items():
             if path and os.path.exists(path):
                 logger.info(f"  - {name}: {path}")
             else:
+                missing_files.append(name)
                 logger.warning(f"  - {name}: FILE MISSING")
+
+        if missing_files:
+            raise RuntimeError(f"Missing exported files: {', '.join(missing_files)}")
 
     except Exception as e:
         logger.error(f"❌ Pipeline failed: {str(e)}", exc_info=True)

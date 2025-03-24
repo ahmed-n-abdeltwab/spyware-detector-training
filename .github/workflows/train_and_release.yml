@@ -39,13 +39,19 @@ jobs:
           docker build -t $DOCKER_IMAGE .
           docker images
 
-      - name: Run training pipeline
+      - name: Prepare release directory
         run: |
           mkdir -p ./$RELEASE_DIR/latest
+          chmod -R 777 ./$RELEASE_DIR
+
+      - name: Run training pipeline
+        run: |
           docker run --rm \
             -v $(pwd)/data:/app/data \
             -v $(pwd)/models:/app/models \
             -v $(pwd)/$RELEASE_DIR:/app/release \
+            -e PYTHONPATH=/app \
+            -u 1001 \
             $DOCKER_IMAGE
 
       - name: Verify artifacts
@@ -55,10 +61,6 @@ jobs:
           if [ ! -f ./$RELEASE_DIR/latest/model.pkl ]; then
             echo "Error: model.pkl not found!"
             docker logs $(docker ps -lq) || true
-            exit 1
-          fi
-          if [ ! -f ./$RELEASE_DIR/latest/metadata.json ]; then
-            echo "Error: metadata.json not found!"
             exit 1
           fi
 
