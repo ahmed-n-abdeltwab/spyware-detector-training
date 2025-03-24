@@ -38,25 +38,30 @@ def main():
         pipeline = TrainingPipeline("config/pipeline.yaml")
         results = pipeline.run()
 
+        # Verify exported files exist
+        logger.info("Verifying exported files:")
+        missing_files = []
+        for name, path in results["exported_files"].items():
+            if path and os.path.exists(path):
+                logger.info(f"  - {name}: {path}")
+                os.chmod(path, 0o644)
+            else:
+                logger.error(f"  - {name}: FILE MISSING")
+                missing_files.append(name)
+
+        if missing_files:
+            raise FileNotFoundError(
+                f"Missing exported files: {', '.join(missing_files)}"
+            )
+
         # Log results
         logger.info("✅ Training completed successfully")
         logger.info(f"📊 Model Metrics:\n{json.dumps(results['metrics'], indent=2)}")
 
         # Create compressed release package
-        shutil.make_archive("model_release", "zip", release_dir)
-        logger.info("📦 Created release package: model_release.zip")
-
-        # Verify all artifacts were created
-        missing_files = []
-        for name, path in results["exported_files"].items():
-            if path and os.path.exists(path):
-                logger.info(f"  - {name}: {path}")
-            else:
-                missing_files.append(name)
-                logger.warning(f"  - {name}: FILE MISSING")
-
-        if missing_files:
-            raise RuntimeError(f"Missing exported files: {', '.join(missing_files)}")
+        archive_path = os.path.join(release_dir, "model_release.zip")
+        shutil.make_archive(archive_path[:-4], "zip", release_dir)
+        logger.info(f"📦 Created release package: {archive_path}")
 
     except Exception as e:
         logger.error(f"❌ Pipeline failed: {str(e)}", exc_info=True)

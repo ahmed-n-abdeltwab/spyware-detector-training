@@ -56,25 +56,55 @@ jobs:
 
       - name: Verify artifacts
         run: |
-          echo "Generated artifacts:"
-          ls -lR ./$RELEASE_DIR
-          if [ ! -f ./$RELEASE_DIR/latest/model.pkl ]; then
-            echo "Error: model.pkl not found!"
+          echo "Generated artifacts in release/latest:"
+          ls -lR ./$RELEASE_DIR/latest
+          
+          REQUIRED_FILES=(
+            "model.pkl"
+            "metadata.json"
+            "metrics.json"
+            "feature_structure.json"
+          )
+          
+          missing_files=0
+          for file in "${REQUIRED_FILES[@]}"; do
+            if [ ! -f "./$RELEASE_DIR/latest/$file" ]; then
+              echo "Error: Required file $file not found!"
+              missing_files=$((missing_files+1))
+            fi
+          done
+          
+          if [ $missing_files -gt 0 ]; then
+            echo "Error: Missing $missing_files required files!"
             docker logs $(docker ps -lq) || true
             exit 1
           fi
 
       - name: Create release package
         run: |
+          echo "Contents of release directory before packaging:"
+          ls -lR ./$RELEASE_DIR
+          
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           RELEASE_NAME="model_$TIMESTAMP"
-          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/latest .
+          
+          mkdir -p ./$RELEASE_DIR/temp_package
+          cp -r ./$RELEASE_DIR/latest/* ./$RELEASE_DIR/temp_package/
+          
+          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/temp_package .
+          
+          rm -rf ./$RELEASE_DIR/temp_package
+          
+          echo "Created package:"
+          ls -l ./$RELEASE_DIR/*.tar.gz
 
       - name: Upload artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: model-release
-          path: ./$RELEASE_DIR/*.tar.gz
+          path: ${{ env.RELEASE_DIR }}/*.tar.gz
+          if-no-files-found: error
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
@@ -85,6 +115,9 @@ jobs:
             Automated model training results:
             - Model: $(jq -r '.model_type' ./$RELEASE_DIR/latest/metadata.json)
             - Timestamp: $(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json)
+            - Metrics:
+              Accuracy: $(jq -r '.metrics.accuracy' ./$RELEASE_DIR/latest/metrics.json)
+              F1 Score: $(jq -r '.metrics.f1' ./$RELEASE_DIR/latest/metrics.json)
           files: ./$RELEASE_DIR/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
