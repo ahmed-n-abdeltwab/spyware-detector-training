@@ -1,8 +1,9 @@
-name: Train and Release Model
+name: Model Training and Release
 
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*.*.*' ]  # Trigger on version tags
   workflow_dispatch:
 
 env:
@@ -13,13 +14,15 @@ jobs:
   train-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write  # Required for creating releases
       packages: write
       actions: read
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for tag detection
 
       - name: Set up Python 3.9
         uses: actions/setup-python@v4
@@ -56,7 +59,7 @@ jobs:
 
       - name: Verify artifacts
         run: |
-          echo "Generated artifacts in release/latest:"
+          echo "Generated artifacts:"
           ls -lR ./$RELEASE_DIR/latest
           
           REQUIRED_FILES=(
@@ -80,44 +83,66 @@ jobs:
             exit 1
           fi
 
-      - name: Create release package
+      - name: Package release assets
         run: |
-          echo "Contents of release directory before packaging:"
-          ls -lR ./$RELEASE_DIR
-          
           TIMESTAMP=$(date +%Y%m%d_%H%M%S)
           RELEASE_NAME="model_$TIMESTAMP"
           
-          mkdir -p ./$RELEASE_DIR/temp_package
-          cp -r ./$RELEASE_DIR/latest/* ./$RELEASE_DIR/temp_package/
+          # Create archive with all artifacts
+          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/latest .
           
-          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/temp_package .
+          # Create version file
+          MODEL_VERSION=$(jq -r '.timestamp + "-" + .model_type' ./$RELEASE_DIR/latest/metadata.json)
+          echo $MODEL_VERSION > ./$RELEASE_DIR/version.txt
           
-          rm -rf ./$RELEASE_DIR/temp_package
-          
-          echo "Created package:"
+          echo "Release assets prepared:"
           ls -l ./$RELEASE_DIR/*.tar.gz
 
-      - name: Upload artifact
-        if: success()
+      - name: Auto-tag release (on main branch)
+        if: github.ref == 'refs/heads/main'
+        id: autotag
+        run: |
+          # Get version from metadata
+          VERSION=$(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json | cut -c1-10 | tr -d '-')
+          TAG_NAME="v1.0.$VERSION"
+          
+          # Create lightweight tag
+          git tag $TAG_NAME
+          git push origin $TAG_NAME
+          
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name || steps.autotag.outputs.tag_name }}
+          name: "Model Release ${{ github.ref_name || steps.autotag.outputs.tag_name }}"
+          body: |
+            ## Model Details
+            - **Type**: $(jq -r '.model_type' ./$RELEASE_DIR/latest/metadata.json)
+            - **Training Date**: $(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json)
+            
+            ## Performance Metrics
+            ```json
+            $(cat ./$RELEASE_DIR/latest/metrics.json)
+            ```
+            
+            ## Version Info
+            $(cat ./$RELEASE_DIR/version.txt)
+          files: |
+            ${{ env.RELEASE_DIR }}/*.tar.gz
+            ${{ env.RELEASE_DIR }}/latest/metadata.json
+            ${{ env.RELEASE_DIR }}/latest/metrics.json
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: model-release
-          path: ${{ env.RELEASE_DIR }}/*.tar.gz
+          path: |
+            ${{ env.RELEASE_DIR }}/*.tar.gz
+            ${{ env.RELEASE_DIR }}/version.txt
           if-no-files-found: error
-
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          name: "Model Release $(date +'%Y-%m-%d')"
-          body: |
-            Automated model training results:
-            - Model: $(jq -r '.model_type' ./$RELEASE_DIR/latest/metadata.json)
-            - Timestamp: $(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json)
-            - Metrics:
-              Accuracy: $(jq -r '.metrics.accuracy' ./$RELEASE_DIR/latest/metrics.json)
-              F1 Score: $(jq -r '.metrics.f1' ./$RELEASE_DIR/latest/metrics.json)
-          files: ./$RELEASE_DIR/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
