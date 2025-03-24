@@ -2,6 +2,7 @@ import logging
 import shutil
 import sys
 import os
+import json
 from src.pipeline import TrainingPipeline
 
 
@@ -24,6 +25,11 @@ def main():
     try:
         logger.info("🚀 Starting Spyware Detector Training Pipeline")
 
+        # Ensure release directory exists
+        release_dir = os.path.abspath("release/latest")
+        os.makedirs(release_dir, exist_ok=True)
+        logger.info(f"Release directory: {release_dir}")
+
         # Initialize and run pipeline
         pipeline = TrainingPipeline("config/pipeline.yaml")
         results = pipeline.run()
@@ -32,27 +38,17 @@ def main():
         logger.info("✅ Training completed successfully")
         logger.info(f"📊 Model Metrics:\n{json.dumps(results['metrics'], indent=2)}")
 
-        # Get the actual release directory from exported files
-        release_dir = next(
-            (
-                os.path.dirname(p)
-                for p in results["exported_files"].values()
-                if p and os.path.exists(os.path.dirname(p))
-            ),
-            None,
-        )
-
-        if not release_dir:
-            raise RuntimeError("No valid release directory found in exported files")
-
         # Create compressed release package
-        archive_base = os.path.basename(release_dir.rstrip("/"))
-        shutil.make_archive(archive_base, "zip", release_dir)
-        logger.info(f"📦 Created release package: {archive_base}.zip")
+        shutil.make_archive("model_release", "zip", release_dir)
+        logger.info("📦 Created release package: model_release.zip")
 
+        # Log exported files
         logger.info("💾 Artifacts generated:")
         for name, path in results["exported_files"].items():
-            logger.info(f"  - {name}: {path}")
+            if path and os.path.exists(path):
+                logger.info(f"  - {name}: {path}")
+            else:
+                logger.warning(f"  - {name}: FILE MISSING")
 
     except Exception as e:
         logger.error(f"❌ Pipeline failed: {str(e)}", exc_info=True)
@@ -60,6 +56,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import json  # Import moved here to show it's needed
-
     main()

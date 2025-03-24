@@ -1,5 +1,5 @@
 # ========== BUILD STAGE ==========
-FROM python:3.9 AS builder
+FROM python:3.9-slim AS builder
 
 WORKDIR /app
 
@@ -16,30 +16,30 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-
 # ========== RUNTIME STAGE ==========
 FROM python:3.9-slim
 
-ENV PYTHONPATH=/app
+# Create directory structure with proper permissions
+RUN mkdir -p /app && \
+    mkdir -p /app/data && \
+    mkdir -p /app/models && \
+    mkdir -p /app/release && \
+    chmod -R 777 /app
 
 # Create non-root user
 RUN useradd -m appuser && \
-    mkdir -p /app && \
-    chown appuser:appuser /app
+    chown -R appuser:appuser /app
 
 WORKDIR /app
 USER appuser
 
 # Copy virtual environment
-COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application files
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser config/ ./config/
-
-# Create data directories
-RUN mkdir -p data/raw data/processed models/saved release
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s \

@@ -1,0 +1,1216 @@
+################
+# .dockerignore
+# /home/ahmed/Repositories/Mine/spyware-detector-training/.dockerignore
+################
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+venv/
+.env
+.DS_Store
+*.log
+*.sqlite3
+*.zip
+*.tar.gz
+.pytest_cache/
+.idea/
+.vscode/
+################
+# Dockerfile
+# /home/ahmed/Repositories/Mine/spyware-detector-training/Dockerfile
+################
+# ========== BUILD STAGE ==========
+FROM python:3.9 AS builder
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+# ========== RUNTIME STAGE ==========
+FROM python:3.9-slim
+
+ENV PYTHONPATH=/app
+
+# Create non-root user
+RUN useradd -m appuser && \
+    mkdir -p /app && \
+    chown appuser:appuser /app
+
+WORKDIR /app
+USER appuser
+
+# Copy virtual environment
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copy application files
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser config/ ./config/
+
+# Create data directories
+RUN mkdir -p data/raw data/processed models/saved release
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s \
+  CMD python -c "import sys; sys.exit(0)"
+
+# Entry point
+CMD ["python", "src/main.py"]
+################
+# feature_extractor.yaml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/config/components/feature_extractor.yaml
+################
+class_path: src.components.feature_extractor.FeatureExtractor
+params:
+  scale_features: true
+  output_dir: "data/processed"
+  transformations:
+    - "standard_scaling"
+    - "log_transform"
+  logging:
+    level: "DEBUG"
+################
+# feature_selector.yaml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/config/components/feature_selector.yaml
+################
+class_path: src.components.feature_selector.FeatureSelector
+params:
+  method: "mutual_info"
+  k: 50
+  output_dir: "data/processed"
+  scoring:
+    mutual_info:
+      random_state: 42
+    chi2:
+      min_value: 0
+  logging:
+    level: "INFO"
+################
+# data_processor.yaml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/config/components/data_processor.yaml
+################
+class_path: src.components.data_processor.DataProcessor
+params:
+  data_path: "data/malwares.csv"
+  label_column: "labels"
+  separator: "\t"
+  validation:
+    min_features: 10
+    max_null_percentage: 0.5
+  logging:
+    level: "INFO"
+################
+# model_trainer.yaml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/config/components/model_trainer.yaml
+################
+class_path: src.components.model_trainer.ModelTrainer
+params:
+  model_type: "random_forest"
+  output_dir: "models/saved"
+  validation:
+    cv_folds: 5
+    scoring: "f1_weighted"
+    error_score: 'raise'
+  hyperparams:
+    random_forest:
+      n_estimators: [100, 200]
+      max_depth: [10, 20, 30]  # Remove None from options
+      min_samples_split: [2, 5]
+    svm:
+      C: [0.1, 1, 10]
+      kernel: ["linear", "rbf"]
+    neural_net:
+      hidden_layer_sizes: [[50], [100], [50, 50]]
+      alpha: [0.0001, 0.001]
+  logging:
+    level: "DEBUG"
+################
+# pipeline.yaml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/config/pipeline.yaml
+################
+components:
+  data_processor:
+    class_path: src.components.data_processor.DataProcessor
+    params:
+      data_path: "data/malwares.csv"
+      label_column: "labels"
+      separator: "\t"
+  
+  feature_extractor:
+    class_path: src.components.feature_extractor.FeatureExtractor
+    params:
+      scale_features: true
+      output_dir: "data/processed"
+  
+  feature_selector:
+    class_path: src.components.feature_selector.FeatureSelector
+    params:
+      method: "mutual_info"
+      k: 50
+      output_dir: "data/processed"
+  
+  model_trainer:
+    class_path: src.components.model_trainer.ModelTrainer
+    params:
+      model_type: "random_forest"
+      output_dir: "models/saved"
+      hyperparams:
+        n_estimators: [100, 200]
+        max_depth: [None, 10, 20]
+        min_samples_split: [2, 5]
+
+release:
+  output_dir: "release"
+################
+# README.md
+# /home/ahmed/Repositories/Mine/spyware-detector-training/README.md
+################
+# Spyware Detection Training Pipeline
+
+![Python](https://img.shields.io/badge/python-3.9-blue)
+![Scikit-learn](https://img.shields.io/badge/scikit--learn-1.2+-orange)
+![Docker](https://img.shields.io/badge/docker-ready-success)
+
+A containerized pipeline for training and deploying spyware detection models.
+
+## Features
+
+- 🐳 Production-ready Docker container
+- 🧩 Modular component architecture
+- 📊 Comprehensive model evaluation
+- 🔐 Secure non-root execution
+- 📦 Optimized multi-stage build
+
+## Quick Start
+
+### Prerequisites
+
+- Docker 20.10+
+- Python 3.9+
+
+### Using Docker (Recommended)
+
+1. Build the image:
+   ```bash
+   docker build -t spyware-detector .
+   ```
+
+2. Run training:
+   ```bash
+   docker run --rm \
+     -v $(pwd)/data:/app/data \
+     -v $(pwd)/models:/app/models \
+     -v $(pwd)/release:/app/release \
+     spyware-detector
+   ```
+
+### Local Development
+
+1. Setup environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. Run pipeline:
+   ```bash
+   python src/main.py
+   ```
+
+## Configuration
+
+Edit YAML files in `config/` to customize:
+
+```yaml
+# Example config/components/model_trainer.yaml
+params:
+  model_type: "random_forest"
+  hyperparams:
+    n_estimators: [100, 200]
+    max_depth: [10, 20]
+```
+
+## Project Structure
+
+```
+.
+├── config/           # Pipeline configuration
+├── data/             # Training data
+├── models/           # Trained models
+├── release/          # Deployment packages
+├── src/              # Application code
+└── tests/            # Unit tests
+```
+
+## CI/CD Integration
+
+The included GitHub workflow:
+
+1. Builds Docker image on push
+2. Runs training pipeline
+3. Packages artifacts
+4. Creates GitHub release
+
+## Security Best Practices
+
+- Non-root container user
+- Minimal runtime image
+- Regular dependency updates
+- Isolated build environment
+
+## License
+
+MIT License - See [LICENSE](LICENSE) for details.
+################
+################
+# .gitignore
+# /home/ahmed/Repositories/Mine/spyware-detector-training/.gitignore
+################
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.env/
+.venv/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data files
+data/raw/
+data/processed/
+*.csv
+*.pkl
+*.pickle
+
+# Model files
+models/saved/
+*.pth
+*.h5
+*.joblib
+
+# Log files
+*.log
+logs/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Release packages
+release/
+*.zip
+*.tar.gz
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Documentation
+docs/_build/
+################
+# main.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/main.py
+################
+import logging
+import shutil
+import sys
+import os
+from src.pipeline import TrainingPipeline
+
+
+def configure_logging():
+    """Set up logging configuration"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("training.log"),
+        ],
+    )
+
+
+def main():
+    configure_logging()
+    logger = logging.getLogger(__name__)
+
+    try:
+        logger.info("🚀 Starting Spyware Detector Training Pipeline")
+
+        # Initialize and run pipeline
+        pipeline = TrainingPipeline("config/pipeline.yaml")
+        results = pipeline.run()
+
+        # Log results
+        logger.info("✅ Training completed successfully")
+        logger.info(f"📊 Model Metrics:\n{json.dumps(results['metrics'], indent=2)}")
+
+        # Get the actual release directory from exported files
+        release_dir = next(
+            (
+                os.path.dirname(p)
+                for p in results["exported_files"].values()
+                if p and os.path.exists(os.path.dirname(p))
+            ),
+            None,
+        )
+
+        if not release_dir:
+            raise RuntimeError("No valid release directory found in exported files")
+
+        # Create compressed release package
+        archive_base = os.path.basename(release_dir.rstrip("/"))
+        shutil.make_archive(archive_base, "zip", release_dir)
+        logger.info(f"📦 Created release package: {archive_base}.zip")
+
+        logger.info("💾 Artifacts generated:")
+        for name, path in results["exported_files"].items():
+            logger.info(f"  - {name}: {path}")
+
+    except Exception as e:
+        logger.error(f"❌ Pipeline failed: {str(e)}", exc_info=True)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    import json  # Import moved here to show it's needed
+
+    main()
+################
+# feature_extractor.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/feature_extractor.py
+################
+import os
+import json
+import pickle
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from typing import Dict, List
+from src.interfaces import IFeatureExtractor
+from src.utils.directory import ensure_directory
+
+
+class FeatureExtractor(IFeatureExtractor):
+    def __init__(self, config: dict):
+        self.config = config
+        self.scaler = StandardScaler() if config.get("scale_features", True) else None
+        self.feature_names: List[str] = []
+        self.config["output_dir"] = ensure_directory(
+            config.get("output_dir", "data/processed")
+        )
+
+    def fit(self, X: pd.DataFrame) -> None:
+        """Fit the feature extractor on training data"""
+        if isinstance(X, pd.DataFrame):
+            self.feature_names = X.columns.tolist()
+
+        if self.scaler:
+            self.scaler.fit(X)
+
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        """Transform data using fitted extractor"""
+        features = X.values if isinstance(X, pd.DataFrame) else X
+
+        if self.scaler:
+            if not hasattr(self.scaler, "scale_"):
+                raise RuntimeError("Scaler not fitted. Call fit() first.")
+            features = self.scaler.transform(features)
+
+        return features
+
+    def save_artifacts(self) -> Dict[str, str]:
+        """Save scaler and feature names"""
+        artifacts = {}
+        output_dir = self.config.get("output_dir", "data/processed")
+
+        if self.scaler:
+            scaler_path = os.path.join(output_dir, "scaler.pkl")
+            with open(scaler_path, "wb") as f:
+                pickle.dump(self.scaler, f)
+            artifacts["scaler"] = scaler_path
+
+        if self.feature_names:
+            features_path = os.path.join(output_dir, "feature_names.json")
+            with open(features_path, "w") as f:
+                json.dump(self.feature_names, f)
+            artifacts["feature_names"] = features_path
+
+        return artifacts
+################
+# data_processor.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/data_processor.py
+################
+import os
+import pandas as pd
+from typing import Tuple
+from src.interfaces import IDataProcessor
+
+
+class DataProcessor(IDataProcessor):
+    def __init__(self, config: dict):
+        self.config = config
+        self._validate_config()
+
+    def _validate_config(self):
+        required = ["data_path", "label_column"]
+        if not all(k in self.config for k in required):
+            raise ValueError(f"Missing required config keys: {required}")
+
+    def load_data(self) -> pd.DataFrame:
+        """Load data from configured source"""
+        if not os.path.exists(self.config["data_path"]):
+            raise FileNotFoundError(
+                f"Data file not found at {self.config['data_path']}"
+            )
+
+        try:
+            return pd.read_csv(
+                self.config["data_path"],
+                sep=self.config.get("separator", "\t"),
+                engine="python",
+            )
+        except Exception as e:
+            raise ValueError(f"Failed to load data: {str(e)}")
+
+    def preprocess(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        """Clean and prepare data"""
+        # Normalize column names
+        data.columns = data.columns.astype(str).str.strip().str.lower()
+
+        # Identify label column
+        label_col = next(
+            (col for col in data.columns if self.config["label_column"] in col.lower()),
+            None,
+        )
+        if label_col is None:
+            raise ValueError(f"Label column '{self.config['label_column']}' not found")
+
+        # Ensure labels are numeric
+        y = pd.to_numeric(data[label_col], errors="coerce")
+        if y.isna().any():
+            raise ValueError("Label column contains non-numeric values")
+
+        X = data.drop(columns=[label_col])
+
+        # Convert all features to numeric
+        X = X.apply(pd.to_numeric, errors="coerce")
+
+        # Drop completely null columns/rows
+        X = X.dropna(axis=1, how="all").dropna(axis=0, how="all")
+
+        return X, y
+################
+# artifact_exporter.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/artifact_exporter.py
+################
+import os
+import shutil
+import json
+import pickle
+from datetime import datetime
+from typing import Dict, Any
+from src.utils.directory import ensure_directory
+
+
+class ArtifactExporter:
+    def __init__(self, config: Dict[str, Any]):
+        self.config = config
+        # Ensure base output directory exists with proper permissions
+        self.config["output_dir"] = ensure_directory(
+            os.path.abspath(config.get("output_dir", "release"))
+        )
+
+    def export_training_artifacts(
+        self, training_results: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """Export all artifacts from training pipeline with robust error handling"""
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            release_dir = os.path.join(
+                self.config["output_dir"], f"release_{timestamp}"
+            )
+            release_dir = ensure_directory(release_dir)
+
+            exported_files = {}
+            artifacts = training_results["artifacts"]
+
+            # 1. Export model files with existence verification
+            model_files_to_export = [
+                ("model.pkl", "model"),
+                ("metadata.json", "metadata"),
+                ("metrics.json", "metrics"),
+            ]
+
+            model_dir = artifacts.get("model")
+            if model_dir and os.path.exists(os.path.dirname(model_dir)):
+                for filename, key in model_files_to_export:
+                    src = os.path.join(os.path.dirname(model_dir), filename)
+                    dest = os.path.join(release_dir, filename)
+                    if self._safe_copy(src, dest):
+                        exported_files[key] = dest
+                    else:
+                        # Create empty metrics.json if missing
+                        if filename == "metrics.json":
+                            self._create_default_metrics(release_dir, training_results)
+                            exported_files["metrics"] = os.path.join(
+                                release_dir, "metrics.json"
+                            )
+
+            # 2. Export preprocessing artifacts
+            preprocess_artifacts = {
+                "scaler.pkl": "scaler",
+                "feature_selector.pkl": "feature_selector",
+                "selected_features.json": "selected_features",
+            }
+
+            for artifact_file, artifact_key in preprocess_artifacts.items():
+                src = artifacts.get(artifact_key)
+                if src and os.path.exists(src):
+                    dest = os.path.join(release_dir, artifact_file)
+                    if self._safe_copy(src, dest):
+                        exported_files[artifact_key] = dest
+
+            # 3. Create feature structure file
+            feature_structure = {
+                "feature_names": training_results.get("selected_features", []),
+                "required_features": len(training_results.get("selected_features", [])),
+                "version": timestamp,
+            }
+            feature_structure_path = os.path.join(release_dir, "feature_structure.json")
+            self._safe_write_json(feature_structure_path, feature_structure)
+            exported_files["feature_structure"] = feature_structure_path
+
+            # 4. Create package info
+            self._create_package_info(release_dir, exported_files)
+
+            return {k: os.path.abspath(v) for k, v in exported_files.items()}
+
+        except Exception as e:
+            print(f"Critical error during artifact export: {str(e)}")
+            raise
+
+    def _create_default_metrics(
+        self, release_dir: str, training_results: Dict[str, Any]
+    ):
+        """Create default metrics file if missing"""
+        default_metrics = training_results.get(
+            "metrics",
+            {
+                "warning": "Metrics were not properly saved during training",
+                "accuracy": 0,
+                "precision": 0,
+                "recall": 0,
+                "f1": 0,
+                "confusion_matrix": [],
+            },
+        )
+        metrics_path = os.path.join(release_dir, "metrics.json")
+        self._safe_write_json(metrics_path, default_metrics)
+
+    def _create_package_info(self, release_dir: str, files: Dict[str, str]):
+        """Create documentation about package contents"""
+        package_info = {
+            "package_version": datetime.now().isoformat(),
+            "contents": {
+                "model": "Serialized trained model (pickle format)",
+                "metadata": "Model training metadata and parameters",
+                "metrics": "Model performance metrics",
+                "feature_structure": "Required feature names and structure",
+                "scaler": "Feature scaling parameters",
+                "feature_selector": "Feature selection parameters",
+            },
+            "actual_contents": {k: os.path.basename(v) for k, v in files.items()},
+            "notes": "Some components may be placeholders if export failed",
+        }
+        self._safe_write_json(
+            os.path.join(release_dir, "package_info.json"), package_info
+        )
+
+    def _safe_copy(self, src: str, dest: str) -> bool:
+        """Safe file copy with comprehensive error handling"""
+        try:
+            if os.path.exists(src):
+                shutil.copy(src, dest)
+                return os.path.exists(dest)
+            return False
+        except (OSError, shutil.SameFileError) as e:
+            print(f"Warning: Failed to copy {src} to {dest}: {str(e)}")
+            return False
+
+    def _safe_write_json(self, path: str, data: Dict[str, Any]):
+        """Atomic JSON file writing with comprehensive error handling"""
+        temp_path = None
+        try:
+            temp_path = f"{path}.tmp"
+            with open(temp_path, "w") as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+
+            if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
+                os.replace(temp_path, path)
+            else:
+                raise OSError("Temporary file is invalid")
+        except (TypeError, ValueError) as e:
+            print(f"JSON error writing to {path}: {str(e)}")
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
+        except OSError as e:
+            print(f"Filesystem error writing to {path}: {str(e)}")
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
+        except Exception as e:
+            print(f"Unexpected error writing to {path}: {str(e)}")
+            if temp_path and os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+################
+# model_trainer.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/model_trainer.py
+################
+import os
+import json
+import pickle
+import time
+from datetime import datetime
+from typing import Dict, Any
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+)
+from src.interfaces import IModelTrainer
+from src.utils.directory import ensure_directory
+
+
+class ModelTrainer(IModelTrainer):
+    def __init__(self, config: dict):
+        self.config = config
+        self.model = None
+        self.best_params = None
+        self.metrics = None
+        self.config["output_dir"] = ensure_directory(
+            config.get("output_dir", "models/saved")
+        )
+
+    def train(self, X: np.ndarray, y: np.ndarray) -> Any:
+        """Train model with hyperparameter tuning"""
+        model_type = self.config.get("model_type", "random_forest")
+        hyperparams = self.config.get("hyperparams", {})
+
+        # Initialize model
+        model = self._get_model_instance(model_type)
+
+        # Hyperparameter tuning
+        if hyperparams:
+            start_time = time.time()
+            grid_search = GridSearchCV(
+                model, hyperparams, cv=3, scoring="f1_weighted", verbose=1
+            )
+            grid_search.fit(X, y)
+
+            self.model = grid_search.best_estimator_
+            self.best_params = grid_search.best_params_
+
+            print(f"Hyperparameter tuning completed in {time.time() - start_time:.2f}s")
+            print(f"Best parameters: {self.best_params}")
+        else:
+            self.model = model
+            self.model.fit(X, y)
+
+        return self.model
+
+    def evaluate(self, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        """Evaluate model performance"""
+        if self.model is None:
+            raise RuntimeError("Model not trained. Call train() first.")
+
+        y_pred = self.model.predict(X)
+
+        self.metrics = {
+            "accuracy": accuracy_score(y, y_pred),
+            "precision": precision_score(y, y_pred, average="weighted"),
+            "recall": recall_score(y, y_pred, average="weighted"),
+            "f1": f1_score(y, y_pred, average="weighted"),
+            "confusion_matrix": confusion_matrix(y, y_pred).tolist(),
+        }
+
+        return self.metrics
+
+    def save_model(self) -> Dict[str, str]:
+        """Save trained model and metadata"""
+        if self.model is None:
+            raise RuntimeError("No model to save. Train a model first.")
+
+        artifacts = {}
+        output_dir = self.config.get("output_dir", "models/saved")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_dir = os.path.join(output_dir, f"model_{timestamp}")
+        os.makedirs(model_dir, exist_ok=True)
+
+        # Save model
+        model_path = os.path.join(model_dir, "model.pkl")
+        with open(model_path, "wb") as f:
+            pickle.dump(self.model, f)
+        artifacts["model"] = model_path
+
+        # Save metadata
+        metadata = {
+            "model_type": self.config.get("model_type"),
+            "timestamp": timestamp,
+            "hyperparameters": self.best_params,
+            "metrics": self.metrics,
+        }
+
+        metadata_path = os.path.join(model_dir, "metadata.json")
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        artifacts["metadata"] = metadata_path
+
+        return artifacts
+
+    def _get_model_instance(self, model_type: str) -> Any:
+        """Create model instance based on type"""
+        if model_type == "random_forest":
+            return RandomForestClassifier(random_state=42, class_weight="balanced")
+        elif model_type == "svm":
+            return SVC(probability=True, random_state=42, class_weight="balanced")
+        elif model_type == "neural_net":
+            return MLPClassifier(random_state=42, max_iter=500)
+        else:
+            raise ValueError(f"Unknown model type: {model_type}")
+################
+# feature_selector.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/feature_selector.py
+################
+import os
+import pickle
+import json
+import numpy as np
+from typing import List, Tuple, Dict
+from sklearn.feature_selection import SelectKBest, mutual_info_classif, chi2
+from src.interfaces import IFeatureSelector
+from src.utils.directory import ensure_directory
+
+
+class FeatureSelector(IFeatureSelector):
+    def __init__(self, config: dict):
+        self.config = config
+        self.selector = None
+        self.selected_feature_indices = None
+        self.selected_feature_names = None
+        self.config["output_dir"] = ensure_directory(
+            config.get("output_dir", "data/processed")
+        )
+
+    def select_features(
+        self, X: np.ndarray, y: np.ndarray
+    ) -> Tuple[np.ndarray, List[str]]:
+        """Select features based on configured method"""
+        method = self.config.get("method", "mutual_info")
+        k = min(self.config.get("k", 50), X.shape[1])
+
+        if method == "mutual_info":
+            self.selector = SelectKBest(mutual_info_classif, k=k)
+        elif method == "chi2":
+            # Ensure data is non-negative for chi2
+            X = X - np.min(X, axis=0) if np.min(X) < 0 else X
+            self.selector = SelectKBest(chi2, k=k)
+        else:
+            raise ValueError(f"Unsupported feature selection method: {method}")
+
+        X_selected = self.selector.fit_transform(X, y)
+        self.selected_feature_indices = self.selector.get_support(indices=True)
+
+        # If feature names were provided in X (as DataFrame columns), use them
+        if hasattr(X, "columns"):
+            self.selected_feature_names = [
+                X.columns[i] for i in self.selected_feature_indices
+            ]
+        else:
+            self.selected_feature_names = [
+                f"feature_{i}" for i in self.selected_feature_indices
+            ]
+
+        return X_selected, self.selected_feature_names
+
+    def transform_features(self, X: np.ndarray) -> np.ndarray:
+        """Apply feature selection to new data"""
+        if self.selector is None:
+            raise RuntimeError("Selector not fitted. Call select_features() first.")
+        return self.selector.transform(X)
+
+    def save_artifacts(self) -> Dict[str, str]:
+        """Save selector and feature names"""
+        artifacts = {}
+        output_dir = self.config.get("output_dir", "data/processed")
+
+        if self.selector:
+            selector_path = os.path.join(output_dir, "feature_selector.pkl")
+            with open(selector_path, "wb") as f:
+                pickle.dump(self.selector, f)
+            artifacts["feature_selector"] = selector_path
+
+        if self.selected_feature_names:
+            features_path = os.path.join(output_dir, "selected_features.json")
+            with open(features_path, "w") as f:
+                json.dump(self.selected_feature_names, f)
+            artifacts["selected_features"] = features_path
+
+        return artifacts
+################
+# __init__.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/components/__init__.py
+################
+################
+# registry.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/registry.py
+################
+from typing import Dict, Type, Any
+import importlib
+from src.interfaces import *
+
+
+class ComponentRegistry:
+    _instance = None
+    _components: Dict[str, Type] = {}
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def register(cls, component_type: str, component_class: Type):
+        cls._components[component_type] = component_class
+
+    @classmethod
+    def create(cls, component_type: str, config: dict) -> Any:
+        if component_type not in cls._components:
+            raise ValueError(f"Unknown component type: {component_type}")
+        return cls._components[component_type](config)
+
+    @classmethod
+    def load_from_config(cls, config: dict) -> Dict[str, Any]:
+        components = {}
+        for name, spec in config.items():
+            if "class_path" not in spec:
+                raise ValueError(f"Component {name} missing 'class_path'")
+
+            module_path, class_name = spec["class_path"].rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            component_class = getattr(module, class_name)
+
+            cls.register(name, component_class)
+            components[name] = cls.create(name, spec.get("params", {}))
+
+        return components
+################
+# interfaces.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/interfaces.py
+################
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional, Tuple
+import pandas as pd
+import numpy as np
+
+
+class IDataProcessor(ABC):
+    @abstractmethod
+    def load_data(self) -> pd.DataFrame:
+        pass
+
+    @abstractmethod
+    def preprocess(self, data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
+        pass
+
+
+class IFeatureExtractor(ABC):
+    @abstractmethod
+    def fit(self, X: pd.DataFrame) -> None:
+        pass
+
+    @abstractmethod
+    def transform(self, X: pd.DataFrame) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def save_artifacts(self) -> Dict[str, str]:
+        pass
+
+
+class IFeatureSelector(ABC):
+    @abstractmethod
+    def select_features(
+        self, X: np.ndarray, y: np.ndarray
+    ) -> Tuple[np.ndarray, List[str]]:
+        pass
+
+    @abstractmethod
+    def transform_features(self, X: np.ndarray) -> np.ndarray:
+        pass
+
+    @abstractmethod
+    def save_artifacts(self) -> Dict[str, str]:
+        pass
+
+
+class IModelTrainer(ABC):
+    @abstractmethod
+    def train(self, X: np.ndarray, y: np.ndarray) -> Any:
+        pass
+
+    @abstractmethod
+    def evaluate(self, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
+        pass
+
+    @abstractmethod
+    def save_model(self) -> Dict[str, str]:
+        pass
+################
+# pipeline.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/pipeline.py
+################
+from typing import Dict, Any
+import yaml
+from src.registry import ComponentRegistry
+from src.components.artifact_exporter import ArtifactExporter
+
+
+class TrainingPipeline:
+    def __init__(self, config_path: str):
+        self.config = self._load_config(config_path)
+        self.components = ComponentRegistry().load_from_config(
+            self.config["components"]
+        )
+
+    def _load_config(self, config_path: str) -> Dict[str, Any]:
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
+
+    def run(self) -> Dict[str, Any]:
+        artifacts = {}
+
+        # 1. Data Processing
+        raw_data = self.components["data_processor"].load_data()
+        X, y = self.components["data_processor"].preprocess(raw_data)
+
+        # 2. Feature Extraction
+        self.components["feature_extractor"].fit(X)
+        X_features = self.components["feature_extractor"].transform(X)
+        artifacts.update(self.components["feature_extractor"].save_artifacts())
+
+        # 3. Feature Selection
+        X_selected, selected_features = self.components[
+            "feature_selector"
+        ].select_features(X_features, y)
+        artifacts.update(self.components["feature_selector"].save_artifacts())
+
+        # 4. Model Training
+        model = self.components["model_trainer"].train(X_selected, y)
+        metrics = self.components["model_trainer"].evaluate(X_selected, y)
+        artifacts.update(self.components["model_trainer"].save_model())
+
+        # 5. Export artifacts
+        exporter_config = {"output_dir": self.config.get("release_dir", "release")}
+        exporter = ArtifactExporter(exporter_config)
+        exported_files = exporter.export_training_artifacts(
+            {
+                "artifacts": artifacts,
+                "selected_features": selected_features,
+                "metrics": metrics,
+            }
+        )
+
+        return {
+            "model": model,
+            "metrics": metrics,
+            "artifacts": artifacts,
+            "exported_files": exported_files,
+            "selected_features": selected_features,
+        }
+################
+# __init__.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/utils/__init__.py
+################
+################
+# directory.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/utils/directory.py
+################
+import os
+from typing import Optional
+
+
+def ensure_directory(path: str, fallback_to_tmp: bool = True) -> str:
+    """
+    Safely create directory with permission fallback
+
+    Args:
+        path: Desired directory path
+        fallback_to_tmp: Whether to fallback to /tmp if permission denied
+
+    Returns:
+        Path to created directory (may be different if fallback occurred)
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        return path
+    except PermissionError:
+        if not fallback_to_tmp:
+            raise
+
+        temp_path = f"/tmp/{path.replace('/', '_')}"
+        os.makedirs(temp_path, exist_ok=True)
+        print(f"Permission denied, using fallback directory: {temp_path}")
+        return temp_path
+################
+# __init__.py
+# /home/ahmed/Repositories/Mine/spyware-detector-training/src/__init__.py
+################
+################
+# requirements.txt
+# /home/ahmed/Repositories/Mine/spyware-detector-training/requirements.txt
+################
+pandas==1.5.3
+numpy==1.23.5
+scikit-learn==1.2.2
+PyYAML==6.0
+################
+# train_and_release.yml
+# /home/ahmed/Repositories/Mine/spyware-detector-training/.github/workflows/train_and_release.yml
+################
+name: Train and Release Model
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: spyware-detector
+  RELEASE_DIR: release
+
+jobs:
+  train-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.9
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Build Docker image
+        run: docker build -t $DOCKER_IMAGE .
+
+      - name: Run training pipeline
+        run: |
+          mkdir -p ./$RELEASE_DIR
+          docker run --rm \
+            -v $(pwd)/data:/app/data \
+            -v $(pwd)/models:/app/models \
+            -v $(pwd)/$RELEASE_DIR:/app/$RELEASE_DIR \
+            $DOCKER_IMAGE
+
+      - name: Verify artifacts
+        run: |
+          echo "Generated artifacts:"
+          find ./$RELEASE_DIR -type f
+          if [ ! -f ./$RELEASE_DIR/latest/model.pkl ]; then
+            echo "Error: model.pkl not found!"
+            ls -lR ./$RELEASE_DIR
+            exit 1
+          fi
+          if [ ! -f ./$RELEASE_DIR/latest/metadata.json ]; then
+            echo "Error: metadata.json not found!"
+            ls -lR ./$RELEASE_DIR
+            exit 1
+          fi
+
+      - name: Create release package
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          RELEASE_NAME="model_$TIMESTAMP"
+          mkdir -p ./$RELEASE_DIR/$RELEASE_NAME
+          cp -r ./$RELEASE_DIR/latest/* ./$RELEASE_DIR/$RELEASE_NAME/
+          tar -czvf ./$RELEASE_DIR/$RELEASE_NAME.tar.gz -C ./$RELEASE_DIR/$RELEASE_NAME .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-release
+          path: ./$RELEASE_DIR/*.tar.gz
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Model Release $(date +'%Y-%m-%d')"
+          body: |
+            Automated model training results:
+            - Model: $(jq -r '.model_type' ./$RELEASE_DIR/latest/metadata.json)
+            - Timestamp: $(jq -r '.timestamp' ./$RELEASE_DIR/latest/metadata.json)
+            - Metrics:
+              Accuracy: $(jq -r '.metrics.accuracy' ./$RELEASE_DIR/latest/metrics.json)
+              F1 Score: $(jq -r '.metrics.f1' ./$RELEASE_DIR/latest/metrics.json)
+          files: ./$RELEASE_DIR/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+
