@@ -42,7 +42,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy application files (excluding .dockerignore patterns)
 COPY --chown=appuser:appuser setup.py .
-COPY --chown=appuser:appuser pyproject.toml .
 COPY --chown=appuser:appuser requirements.txt .
 COPY --chown=appuser:appuser src/ ./src/
 COPY --chown=appuser:appuser config/ ./config/
